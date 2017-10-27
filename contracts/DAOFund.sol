@@ -1,10 +1,12 @@
 pragma solidity ^0.4.15;
 
 import './IDAOToken.sol';
+import 'zeppelin-solidity/contracts/math/SafeMath.sol';
 
 
 /// @title ICO fund controlled by the investors
 contract DAOFund {
+    using SafeMath for uint256;
 
     enum ApprovalState {
         NotVoted,
@@ -50,6 +52,11 @@ contract DAOFund {
         _;
     }
 
+    modifier onlyToken {
+        require(msg.sender == m_token);
+        _;
+    }
+
 
     // PUBLIC interface
 
@@ -77,17 +84,27 @@ contract DAOFund {
         require(now < state.votingEndTime);
         require(state.approvalState[msg.sender] == ApprovalState.NotVoted);
 
-        if (approval) {
-            state.approvalState[msg.sender] = ApprovalState.Approval;
-            state.approvalVotes += m_token.balanceOf(msg.sender);
-        } else {
-            state.approvalState[msg.sender] = ApprovalState.Disapproval;
-            state.disapprovalVotes += m_token.balanceOf(msg.sender);
-        }
+        state.approvalState[msg.sender] = approval ? ApprovalState.Approval : ApprovalState.Disapproval;
+        addVotingTokens(msg.sender, m_token.balanceOf(msg.sender));
+    }
+
+    function onTokenTransfer(address from, address to, uint amount) external onlyToken {
+        if (!isActive())
+            return;
+
+        subVotingTokens(from, amount);
+        addVotingTokens(to, amount);
     }
 
 
     // INTERNALS
+
+    function isActive() private constant returns (bool) {
+        assert(m_keyPoints.length >= m_keyPointState.length);
+        return m_keyPoints.length > m_keyPointState.length
+                || m_keyPoints.length == m_keyPointState.length && !(m_keyPointState[m_keyPointState.length - 1].processed);
+    }
+
 
     function validateKeyPoints() private constant {
         assert(m_keyPoints.length > 1);
@@ -96,15 +113,9 @@ contract DAOFund {
             KeyPoint storage keyPoint = m_keyPoints[i];
 
             assert(keyPoint.duration >= 1 weeks);
-            fundsTotal += keyPoint.fundsShare;
+            fundsTotal = fundsTotal.add(keyPoint.fundsShare);
         }
         assert(100 == fundsTotal);
-    }
-
-    function isActive() private constant returns (bool) {
-        assert(m_keyPoints.length >= m_keyPointState.length);
-        return m_keyPoints.length > m_keyPointState.length
-                || m_keyPoints.length == m_keyPointState.length && !(m_keyPointState[m_keyPointState.length - 1].processed);
     }
 
     function initNextKeyPoint() private {
@@ -113,7 +124,6 @@ contract DAOFund {
         KeyPoint storage keyPoint = m_keyPoints[m_keyPointState.length];
         m_keyPointState.push(createKeyPointState(now + keyPoint.duration));
     }
-
 
     function getCurrentKeyPoint() private constant returns (KeyPoint storage) {
         assert(isActive());
@@ -128,6 +138,27 @@ contract DAOFund {
     function createKeyPointState(uint votingEndTime) private constant returns (KeyPointState memory) {
         return KeyPointState({processed: false, success: false,
                 votingEndTime: votingEndTime, approvalVotes: 0, disapprovalVotes: 0});
+    }
+
+
+    function addVotingTokens(address tokenOwner, uint amount) private {
+        KeyPointState storage state = getCurrentKeyPointState();
+        ApprovalState vote = state.approvalState[tokenOwner];
+        if (vote == ApprovalState.Approval) {
+            state.approvalVotes = state.approvalVotes.add(amount);
+        } else if (vote == ApprovalState.Disapproval) {
+            state.disapprovalVotes = state.disapprovalVotes.add(amount);
+        }
+    }
+
+    function subVotingTokens(address tokenOwner, uint amount) private {
+        KeyPointState storage state = getCurrentKeyPointState();
+        ApprovalState vote = state.approvalState[tokenOwner];
+        if (vote == ApprovalState.Approval) {
+            state.approvalVotes = state.approvalVotes.sub(amount);
+        } else if (vote == ApprovalState.Disapproval) {
+            state.disapprovalVotes = state.disapprovalVotes.sub(amount);
+        }
     }
 
 
