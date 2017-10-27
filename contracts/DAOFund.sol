@@ -53,15 +53,17 @@ contract DAOFund {
     }
 
     modifier onlyToken {
-        require(msg.sender == m_token);
+        require(msg.sender == address(m_token));
         _;
     }
 
 
     // PUBLIC interface
 
-    function DAOFund(IDAOToken token){
+    function DAOFund(IDAOToken token, uint approveMarginPercent){
         m_token = token;
+        require(approveMarginPercent <= 100);
+        m_approveMarginPercent = approveMarginPercent;
 
         m_keyPoints.push(KeyPoint({duration: 20 weeks, fundsShare: 25}));
         m_keyPoints.push(KeyPoint({duration: 40 weeks, fundsShare: 45}));
@@ -86,6 +88,19 @@ contract DAOFund {
 
         state.approvalState[msg.sender] = approval ? ApprovalState.Approval : ApprovalState.Disapproval;
         addVotingTokens(msg.sender, m_token.balanceOf(msg.sender));
+    }
+
+    function executeKeyPoint() external onlyActive {
+        KeyPointState storage state = getCurrentKeyPointState();
+        assert(!state.processed);
+        require(now >= state.votingEndTime);
+
+        state.processed = true;
+        state.success = isKeyPointApproved();
+        KeyPointResolved(m_keyPointState.length - 1, state.success);
+        if (m_keyPointState.length < m_keyPoints.length)
+            // FIXME interrupt if failed
+            initNextKeyPoint();
     }
 
     function onTokenTransfer(address from, address to, uint amount) external onlyToken {
@@ -162,9 +177,20 @@ contract DAOFund {
     }
 
 
+    function isKeyPointApproved() private constant returns (bool) {
+        KeyPointState storage state = getCurrentKeyPointState();
+        uint totalVotes = state.approvalVotes.add(state.disapprovalVotes);
+        if (0 == totalVotes)
+            return true;
+
+        return state.approvalVotes > state.disapprovalVotes.add(totalVotes.mul(m_approveMarginPercent).div(100));
+    }
+
+
     // FIELDS
 
     IDAOToken public m_token;
+    uint public m_approveMarginPercent;
 
     KeyPoint[] public m_keyPoints;
     KeyPointState[] public m_keyPointState;
