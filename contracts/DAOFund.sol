@@ -1,6 +1,7 @@
 pragma solidity ^0.4.15;
 
 import './IDAOToken.sol';
+import './IDAOVault.sol';
 import 'zeppelin-solidity/contracts/math/SafeMath.sol';
 
 
@@ -70,7 +71,8 @@ contract DAOFund {
 
     // PUBLIC interface
 
-    function DAOFund(IDAOToken token, uint approveMarginPercent){
+    function DAOFund(IDAOVault vault, IDAOToken token, uint approveMarginPercent){
+        m_vault = vault;
         m_token = token;
         require(approveMarginPercent <= 100);
         m_approveMarginPercent = approveMarginPercent;
@@ -86,6 +88,7 @@ contract DAOFund {
         m_keyPointState[0].processed = true;
         m_keyPointState[0].success = true;
         KeyPointResolved(0, true);
+        m_vault.transferToTeam(getCurrentKeyPoint().fundsShare);
         initNextKeyPoint();
 
         assert(isActive());
@@ -108,8 +111,20 @@ contract DAOFund {
         state.processed = true;
         state.success = isKeyPointApproved();
         KeyPointResolved(m_keyPointState.length - 1, state.success);
-        if (state.success && m_keyPointState.length < m_keyPoints.length)
-            initNextKeyPoint();
+        if (state.success) {
+            m_vault.transferToTeam(getCurrentKeyPoint().fundsShare);
+            if (m_keyPointState.length < m_keyPoints.length)
+                initNextKeyPoint();
+        }
+    }
+
+    function refund() external onlyRefunding onlyTokenHolder {
+        uint numerator = m_token.balanceOf(msg.sender);
+        uint denominator = m_token.totalSupply();
+        assert(numerator <= denominator);
+
+        m_token.burnFrom(msg.sender, m_token.balanceOf(msg.sender));
+        m_vault.refund(msg.sender, numerator, denominator);
     }
 
     function onTokenTransfer(address from, address to, uint amount) external onlyToken {
@@ -209,6 +224,7 @@ contract DAOFund {
 
     // FIELDS
 
+    IDAOVault public m_vault;
     IDAOToken public m_token;
     uint public m_approveMarginPercent;
 
