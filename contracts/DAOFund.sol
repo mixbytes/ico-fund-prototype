@@ -47,6 +47,16 @@ contract DAOFund {
         _;
     }
 
+    modifier onlyRefunding {
+        require(isRefunding());
+        _;
+    }
+
+    modifier onlyFinished {
+        require(isFinished());
+        _;
+    }
+
     modifier onlyTokenHolder {
         require(m_token.balanceOf(msg.sender) > 0);
         _;
@@ -98,8 +108,7 @@ contract DAOFund {
         state.processed = true;
         state.success = isKeyPointApproved();
         KeyPointResolved(m_keyPointState.length - 1, state.success);
-        if (m_keyPointState.length < m_keyPoints.length)
-            // FIXME interrupt if failed
+        if (state.success && m_keyPointState.length < m_keyPoints.length)
             initNextKeyPoint();
     }
 
@@ -112,14 +121,25 @@ contract DAOFund {
     }
 
 
-    // INTERNALS
+    // INTERNALS: fund state
 
     function isActive() private constant returns (bool) {
-        assert(m_keyPoints.length >= m_keyPointState.length);
-        return m_keyPoints.length > m_keyPointState.length
-                || m_keyPoints.length == m_keyPointState.length && !(m_keyPointState[m_keyPointState.length - 1].processed);
+        return !isFinished() && !isRefunding();
     }
 
+    function isRefunding() private constant returns (bool) {
+        assert(m_keyPoints.length >= m_keyPointState.length);
+        return getCurrentKeyPointState().processed && !getCurrentKeyPointState().success;
+    }
+
+    function isFinished() private constant returns (bool) {
+        assert(m_keyPoints.length >= m_keyPointState.length);
+        return m_keyPoints.length == m_keyPointState.length
+                && getCurrentKeyPointState().processed && getCurrentKeyPointState().success;
+    }
+
+
+    // INTERNALS: keypoints
 
     function validateKeyPoints() private constant {
         assert(m_keyPoints.length > 1);
@@ -141,12 +161,10 @@ contract DAOFund {
     }
 
     function getCurrentKeyPoint() private constant returns (KeyPoint storage) {
-        assert(isActive());
         return m_keyPoints[m_keyPointState.length - 1];
     }
 
     function getCurrentKeyPointState() private constant returns (KeyPointState storage) {
-        assert(isActive());
         return m_keyPointState[m_keyPointState.length - 1];
     }
 
@@ -155,6 +173,8 @@ contract DAOFund {
                 votingEndTime: votingEndTime, approvalVotes: 0, disapprovalVotes: 0});
     }
 
+
+    // INTERNALS
 
     function addVotingTokens(address tokenOwner, uint amount) private {
         KeyPointState storage state = getCurrentKeyPointState();
