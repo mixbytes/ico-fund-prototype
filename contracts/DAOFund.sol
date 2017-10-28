@@ -43,6 +43,22 @@ contract DAOFund {
     event KeyPointResolved(uint keyPointIndex, bool success);
 
 
+    // lazy initialization
+    modifier initialized {
+        if (0 == m_keyPointState.length) {
+            // first tranche after the ICO
+            m_keyPointState.push(createKeyPointState(getTime()));
+            m_keyPointState[0].processed = true;
+            m_keyPointState[0].success = true;
+            KeyPointResolved(0, true);
+            m_vault.transferToTeam(getCurrentKeyPoint().fundsShare);
+            initNextKeyPoint();
+
+            assert(isActive());
+        }
+        _;
+    }
+
     modifier onlyActive {
         require(isActive());
         _;
@@ -77,36 +93,35 @@ contract DAOFund {
         require(approveMarginPercent <= 100);
         m_approveMarginPercent = approveMarginPercent;
 
-        m_keyPoints.push(KeyPoint({duration: 20 weeks, fundsShare: 25}));
+        m_keyPoints.push(KeyPoint({duration: 0 weeks, fundsShare: 25}));
         m_keyPoints.push(KeyPoint({duration: 40 weeks, fundsShare: 45}));
         m_keyPoints.push(KeyPoint({duration: 20 weeks, fundsShare: 30}));
 
         validateKeyPoints();
-
-        // first tranche after the ICO
-        m_keyPointState.push(createKeyPointState(now));
-        m_keyPointState[0].processed = true;
-        m_keyPointState[0].success = true;
-        KeyPointResolved(0, true);
-        m_vault.transferToTeam(getCurrentKeyPoint().fundsShare);
-        initNextKeyPoint();
-
-        assert(isActive());
     }
 
-    function approveKeyPoint(bool approval) external onlyActive onlyTokenHolder {
+    function approveKeyPoint(bool approval)
+        external
+        initialized
+        onlyActive
+        onlyTokenHolder
+    {
         KeyPointState storage state = getCurrentKeyPointState();
-        require(now < state.votingEndTime);
+        require(getTime() < state.votingEndTime);
         require(state.approvalState[msg.sender] == ApprovalState.NotVoted);
 
         state.approvalState[msg.sender] = approval ? ApprovalState.Approval : ApprovalState.Disapproval;
         addVotingTokens(msg.sender, m_token.balanceOf(msg.sender));
     }
 
-    function executeKeyPoint() external onlyActive {
+    function executeKeyPoint()
+        external
+        initialized
+        onlyActive
+    {
         KeyPointState storage state = getCurrentKeyPointState();
         assert(!state.processed);
-        require(now >= state.votingEndTime);
+        require(getTime() >= state.votingEndTime);
 
         state.processed = true;
         state.success = isKeyPointApproved();
@@ -118,7 +133,12 @@ contract DAOFund {
         }
     }
 
-    function refund() external onlyRefunding onlyTokenHolder {
+    function refund()
+        external
+        initialized
+        onlyRefunding
+        onlyTokenHolder
+    {
         uint numerator = m_token.balanceOf(msg.sender);
         uint denominator = m_token.totalSupply();
         assert(numerator <= denominator);
@@ -127,13 +147,19 @@ contract DAOFund {
         m_vault.refund(msg.sender, numerator, denominator);
     }
 
-    function onTokenTransfer(address from, address to, uint amount) external onlyToken {
+    function onTokenTransfer(address from, address to, uint amount)
+        external
+        initialized
+        onlyToken
+    {
         if (!isActive())
             return;
 
         subVotingTokens(from, amount);
         addVotingTokens(to, amount);
     }
+
+    function init() external initialized {}
 
 
     // INTERNALS: fund state
@@ -158,6 +184,7 @@ contract DAOFund {
 
     function validateKeyPoints() private constant {
         assert(m_keyPoints.length > 1);
+        assert(0 == m_keyPoints[0].duration);   // initial tranche happens immediately
         uint fundsTotal;
         for (uint i = 0; i < m_keyPoints.length; i++) {
             KeyPoint storage keyPoint = m_keyPoints[i];
@@ -172,7 +199,7 @@ contract DAOFund {
         assert(m_keyPoints.length > m_keyPointState.length);
 
         KeyPoint storage keyPoint = m_keyPoints[m_keyPointState.length];
-        m_keyPointState.push(createKeyPointState(now + keyPoint.duration));
+        m_keyPointState.push(createKeyPointState(getTime() + keyPoint.duration));
     }
 
     function getCurrentKeyPoint() private constant returns (KeyPoint storage) {
@@ -219,6 +246,10 @@ contract DAOFund {
             return true;
 
         return state.approvalVotes > state.disapprovalVotes.add(totalVotes.mul(m_approveMarginPercent).div(100));
+    }
+
+    function getTime() internal constant returns (uint) {
+        return now;
     }
 
 
