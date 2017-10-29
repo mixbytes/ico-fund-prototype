@@ -36,6 +36,20 @@ contract DAOFund {
         uint approvalVotes;
         uint disapprovalVotes;
         mapping(address => ApprovalState) approvalState;
+
+        mapping(address => DelegateState) delegateState;
+        mapping(address => DelegatorState) delegatorState;
+    }
+
+    // State of investor to which voting was delegated
+    struct DelegateState {
+        // note: votesAccumulated is always up-to-date, even after delegate voting
+        uint votesAccumulated;
+    }
+
+    // State of investor which delegates voting to other
+    struct DelegatorState {
+        address delegate;
     }
 
 
@@ -85,6 +99,17 @@ contract DAOFund {
     }
 
 
+    modifier notVoted {
+        require(getCurrentKeyPointState().approvalState[msg.sender] == ApprovalState.NotVoted);
+        _;
+    }
+
+    modifier notDelegator {
+        require(address(0) == getDelegatorState(msg.sender).delegate);
+        _;
+    }
+
+
     // PUBLIC interface
 
     function DAOFund(IDAOVault vault, IDAOToken token, uint approveMarginPercent){
@@ -105,13 +130,41 @@ contract DAOFund {
         initialized
         onlyActive
         onlyTokenHolder
+        notVoted
+        notDelegator
     {
         KeyPointState storage state = getCurrentKeyPointState();
         require(getTime() < state.votingEndTime);
-        require(state.approvalState[msg.sender] == ApprovalState.NotVoted);
 
         state.approvalState[msg.sender] = approval ? ApprovalState.Approval : ApprovalState.Disapproval;
-        addVotingTokens(msg.sender, m_token.balanceOf(msg.sender));
+        addVotingTokens(msg.sender, m_token.balanceOf(msg.sender).add(getDelegateState(msg.sender).votesAccumulated));
+    }
+
+    function delegate(address to)
+        external
+        initialized
+        onlyActive
+        onlyTokenHolder
+        notVoted
+        notDelegator
+    {
+        require(m_token.balanceOf(to) > 0);
+
+        // finding final delegate in the chain
+        address delegate = getDelegate(to);
+        // breaking loops
+        require(delegate != msg.sender);
+
+        // transfer accumulated
+        DelegateState storage senderDelegateState = getDelegateState(msg.sender);
+        uint senderTotalVotes = senderDelegateState.votesAccumulated.add(m_token.balanceOf(msg.sender));
+        senderDelegateState.votesAccumulated = 0;
+
+        getDelegateState(delegate).votesAccumulated = getDelegateState(delegate).votesAccumulated.add(senderTotalVotes);
+        addVotingTokens(delegate, senderTotalVotes);
+
+        // mark sender as a delegator
+        getDelegatorState(msg.sender).delegate = delegate;
     }
 
     function executeKeyPoint()
@@ -155,8 +208,25 @@ contract DAOFund {
         if (!isActive())
             return;
 
-        subVotingTokens(from, amount);
-        addVotingTokens(to, amount);
+        address delegate = getDelegate(from);
+        if (delegate == from)
+            // not a delegator
+            subVotingTokens(from, amount);
+        else {
+            // delegator - updates delegate state
+            getDelegateState(delegate).votesAccumulated = getDelegateState(delegate).votesAccumulated.sub(amount);
+            subVotingTokens(delegate, amount);
+        }
+
+        delegate = getDelegate(to);
+        if (delegate == to)
+            // not a delegator
+            addVotingTokens(to, amount);
+        else {
+            // delegator - updates delegate state
+            getDelegateState(delegate).votesAccumulated = getDelegateState(delegate).votesAccumulated.add(amount);
+            addVotingTokens(delegate, amount);
+        }
     }
 
     function init() external initialized {}
@@ -237,6 +307,31 @@ contract DAOFund {
             state.approvalVotes = state.approvalVotes.sub(amount);
         } else if (vote == ApprovalState.Disapproval) {
             state.disapprovalVotes = state.disapprovalVotes.sub(amount);
+        }
+    }
+
+
+    function getDelegateState(address investor) private constant returns (DelegateState storage result) {
+        result = getCurrentKeyPointState().delegateState[investor];
+        // mutually exclusive state
+        assert(0 == result.votesAccumulated || address(0) == getCurrentKeyPointState().delegatorState[investor].delegate);
+    }
+
+    function getDelegatorState(address investor) private constant returns (DelegatorState storage result) {
+        result = getCurrentKeyPointState().delegatorState[investor];
+        // mutually exclusive state
+        assert(address(0) == result.delegate || 0 == getCurrentKeyPointState().delegateState[investor].votesAccumulated);
+    }
+
+    /// @dev finds final delegate in the delegation chain of the investor
+    function getDelegate(address investor) private constant returns (address result) {
+        result = investor;
+        while (true) {
+            address next = getDelegatorState(result).delegate;
+            if (address(0) == next)
+                break;
+            else
+                result = next;
         }
     }
 
