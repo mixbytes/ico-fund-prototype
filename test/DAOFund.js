@@ -58,6 +58,7 @@ contract('DAOFund', function(accounts) {
         const [fund, vault, token] = await instantiate();
         // first tranche
         assertBigNumberEqual(await web3.eth.getBalance(role.team).sub(teamInitialBalance), web3.toWei(25, 'finney'));
+        assert(await fund.isActive());
     });
 
 
@@ -91,6 +92,8 @@ contract('DAOFund', function(accounts) {
         await fund.executeKeyPoint({from: role.nobody});
         // second tranche
         assertBigNumberEqual(await web3.eth.getBalance(role.team).sub(teamInitialBalance), web3.toWei(45, 'finney'));
+
+        assert(await fund.isActive());
     });
 
 
@@ -111,5 +114,108 @@ contract('DAOFund', function(accounts) {
         await fund.executeKeyPoint({from: role.nobody});
         // second tranche
         assertBigNumberEqual(await web3.eth.getBalance(role.team).sub(teamInitialBalance), web3.toWei(45, 'finney'));
+
+        assert(await fund.isActive());
+    });
+
+
+    it("test voting with token transfer", async function() {
+        const role = getRoles();
+        const [fund, vault, token] = await instantiate();
+
+        // voting time
+        await fund.setTime(3 * weeks);
+
+        await fund.approveKeyPoint(true, {from: role.investor1});
+        await fund.approveKeyPoint(false, {from: role.investor2});
+        await fund.approveKeyPoint(false, {from: role.investor3});
+        await token.transfer(role.investor1, tokens(100), {from: role.investor2});
+
+        // executing time
+        await fund.setTime(43 * weeks);
+        const teamInitialBalance = await web3.eth.getBalance(role.team);
+        await fund.executeKeyPoint({from: role.nobody});
+        assertBigNumberEqual(await web3.eth.getBalance(role.team).sub(teamInitialBalance), web3.toWei(45, 'finney'));
+
+        assert(await fund.isActive());
+    });
+
+
+    it("test project success", async function() {
+        const role = getRoles();
+        const teamInitialBalance = await web3.eth.getBalance(role.team);
+        const [fund, vault, token] = await instantiate();
+
+        // 2nd key point
+        await fund.setTime(3 * weeks);
+        await expectThrow(fund.refund({from: role.investor1}));
+        await fund.approveKeyPoint(false, {from: role.investor1});
+        await expectThrow(fund.refund({from: role.investor1}));
+        await fund.approveKeyPoint(true, {from: role.investor2});
+        await fund.approveKeyPoint(true, {from: role.investor3});
+        await fund.setTime(43 * weeks);
+        await expectThrow(fund.refund({from: role.investor1}));
+        await fund.executeKeyPoint({from: role.nobody});
+        await expectThrow(fund.refund({from: role.investor1}));
+
+        // 3rd key point
+        await fund.setTime(44 * weeks);
+        await expectThrow(fund.refund({from: role.investor1}));
+        await fund.approveKeyPoint(false, {from: role.investor1});
+        await expectThrow(fund.refund({from: role.investor1}));
+        await fund.approveKeyPoint(true, {from: role.investor2});
+        await fund.approveKeyPoint(true, {from: role.investor3});
+        await fund.setTime(64 * weeks);
+        await expectThrow(fund.refund({from: role.investor1}));
+        await fund.executeKeyPoint({from: role.nobody});
+        await expectThrow(fund.refund({from: role.investor1}));
+
+        assertBigNumberEqual(await web3.eth.getBalance(role.team).sub(teamInitialBalance), web3.toWei(100, 'finney'));
+
+        assert(await fund.isFinished());
+    });
+
+
+    it("test project failure", async function() {
+        const role = getRoles();
+        const teamInitialBalance = await web3.eth.getBalance(role.team);
+        const [fund, vault, token] = await instantiate();
+
+        // 2nd key point
+        await fund.setTime(3 * weeks);
+        await fund.approveKeyPoint(false, {from: role.investor1});
+        await fund.approveKeyPoint(true, {from: role.investor2});
+        await fund.approveKeyPoint(true, {from: role.investor3});
+        await fund.setTime(43 * weeks);
+        await fund.executeKeyPoint({from: role.nobody});
+
+        // 3rd key point
+        await fund.setTime(44 * weeks);
+        await fund.approveKeyPoint(false, {from: role.investor2});
+        await fund.approveKeyPoint(false, {from: role.investor1});
+        await fund.setTime(64 * weeks);
+        await fund.executeKeyPoint({from: role.nobody});
+
+        assertBigNumberEqual(await web3.eth.getBalance(role.team).sub(teamInitialBalance), web3.toWei(70, 'finney'));
+
+        let initial = await web3.eth.getBalance(role.investor1);
+        await fund.refund({from: role.investor1, gasPrice: 0});
+        assertBigNumberEqual(await token.balanceOf(role.investor1), 0);
+        assertBigNumberEqual(await web3.eth.getBalance(role.investor1).sub(initial), web3.toWei(30*450/1000, 'finney'));
+        await expectThrow(fund.refund({from: role.investor1}));
+
+        initial = await web3.eth.getBalance(role.investor2);
+        await fund.refund({from: role.investor2, gasPrice: 0});
+        assertBigNumberEqual(await token.balanceOf(role.investor2), 0);
+        assertBigNumberEqual(await web3.eth.getBalance(role.investor2).sub(initial), web3.toWei(30*300/1000, 'finney'));
+        await expectThrow(fund.refund({from: role.investor2}));
+
+        initial = await web3.eth.getBalance(role.investor3);
+        await fund.refund({from: role.investor3, gasPrice: 0});
+        assertBigNumberEqual(await token.balanceOf(role.investor3), 0);
+        assertBigNumberEqual(await web3.eth.getBalance(role.investor3).sub(initial), web3.toWei(30*250/1000, 'finney'));
+        await expectThrow(fund.refund({from: role.investor3}));
+
+        assert(await fund.isRefunding());
     });
 });

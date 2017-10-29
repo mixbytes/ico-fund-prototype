@@ -162,18 +162,18 @@ contract DAOFund {
     function init() external initialized {}
 
 
-    // INTERNALS: fund state
+    // PUBLIC: fund state
 
-    function isActive() private constant returns (bool) {
+    function isActive() public constant returns (bool) {
         return !isFinished() && !isRefunding();
     }
 
-    function isRefunding() private constant returns (bool) {
+    function isRefunding() public constant returns (bool) {
         assert(m_keyPoints.length >= m_keyPointState.length);
         return getCurrentKeyPointState().processed && !getCurrentKeyPointState().success;
     }
 
-    function isFinished() private constant returns (bool) {
+    function isFinished() public constant returns (bool) {
         assert(m_keyPoints.length >= m_keyPointState.length);
         return m_keyPoints.length == m_keyPointState.length
                 && getCurrentKeyPointState().processed && getCurrentKeyPointState().success;
@@ -184,12 +184,14 @@ contract DAOFund {
 
     function validateKeyPoints() private constant {
         assert(m_keyPoints.length > 1);
-        assert(0 == m_keyPoints[0].duration);   // initial tranche happens immediately
         uint fundsTotal;
         for (uint i = 0; i < m_keyPoints.length; i++) {
             KeyPoint storage keyPoint = m_keyPoints[i];
 
-            assert(keyPoint.duration >= 1 weeks);
+            if (0 == i)
+                assert(0 == keyPoint.duration);     // initial tranche happens immediately
+            else
+                assert(keyPoint.duration >= 1 weeks);
             fundsTotal = fundsTotal.add(keyPoint.fundsShare);
         }
         assert(100 == fundsTotal);
