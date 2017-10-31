@@ -9,7 +9,9 @@ import 'zeppelin-solidity/contracts/math/SafeMath.sol';
 contract DAOFund {
     using SafeMath for uint256;
 
+    // Vote state
     enum ApprovalState {
+        // default
         NotVoted,
         Approval,
         Disapproval
@@ -26,24 +28,34 @@ contract DAOFund {
 
     // Dynamic state of a KeyPoint
     struct KeyPointState {
+        // true iff appropriate actions were taken for the keypoint
         bool processed;
 
         // true iff decision was made to further finance the project
         bool success;
 
+        // votes are no longer accepted at this time
         uint votingEndTime;
 
+        // current amount of tokens supporting the next tranche to the project
         uint approvalVotes;
+
+        // current amount of tokens supporting cancelation of the project
         uint disapprovalVotes;
+
+        // votes of each investor
         mapping(address => ApprovalState) approvalState;
 
+        // status of an investor as a delegate
         mapping(address => DelegateState) delegateState;
+
+        // status of an investor as a delegator
         mapping(address => DelegatorState) delegatorState;
     }
 
     // State of investor to which voting was delegated
     struct DelegateState {
-        // note: votesAccumulated is always up-to-date, even after delegate voting
+        // note: votesAccumulated is always up-to-date, even after voting
         uint votesAccumulated;
     }
 
@@ -116,15 +128,22 @@ contract DAOFund {
         m_vault = vault;
         m_token = token;
         require(approveMarginPercent <= 100);
+
+        // fund configuration
+        // this configuration could be set in an inheriting contract
+
         m_approveMarginPercent = approveMarginPercent;
 
         m_keyPoints.push(KeyPoint({duration: 0 weeks, fundsShare: 25}));
         m_keyPoints.push(KeyPoint({duration: 40 weeks, fundsShare: 45}));
         m_keyPoints.push(KeyPoint({duration: 20 weeks, fundsShare: 30}));
 
+        // end of fund configuration
+
         validateKeyPoints();
     }
 
+    /// @notice approves of disapproves current keypoint
     function approveKeyPoint(bool approval)
         external
         initialized
@@ -140,6 +159,7 @@ contract DAOFund {
         addVotingTokens(msg.sender, m_token.balanceOf(msg.sender).add(getDelegateState(msg.sender).votesAccumulated));
     }
 
+    /// @notice delegates your vote to other investor
     function delegate(address to)
         external
         initialized
@@ -167,6 +187,7 @@ contract DAOFund {
         getDelegatorState(msg.sender).delegate = delegate;
     }
 
+    /// @notice takes appropriate action after voting is finished
     function executeKeyPoint()
         external
         initialized
@@ -186,6 +207,7 @@ contract DAOFund {
         }
     }
 
+    /// @notice requests refund in case the project is failed
     function refund()
         external
         initialized
@@ -200,6 +222,7 @@ contract DAOFund {
         m_vault.refund(msg.sender, numerator, denominator);
     }
 
+    /// @dev callback for the token
     function onTokenTransfer(address from, address to, uint amount)
         external
         initialized
@@ -229,6 +252,7 @@ contract DAOFund {
         }
     }
 
+    /// @notice explicit init function
     function init() external initialized {}
 
 
@@ -336,6 +360,7 @@ contract DAOFund {
     }
 
 
+    /// @dev main decision maker
     function isKeyPointApproved() private constant returns (bool) {
         KeyPointState storage state = getCurrentKeyPointState();
         uint totalVotes = state.approvalVotes.add(state.disapprovalVotes);
@@ -345,6 +370,7 @@ contract DAOFund {
         return state.approvalVotes > state.disapprovalVotes.add(totalVotes.mul(m_approveMarginPercent).div(100));
     }
 
+    /// @dev to be overridden in tests
     function getTime() internal constant returns (uint) {
         return now;
     }
