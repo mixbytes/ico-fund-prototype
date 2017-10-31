@@ -13,6 +13,11 @@ contract DAOFundTestHelper is DAOFund {
     {
     }
 
+    function getVotes() public constant returns (uint approvalVotes, uint disapprovalVotes) {
+        approvalVotes = getCurrentKeyPointState().approvalVotes;
+        disapprovalVotes = getCurrentKeyPointState().disapprovalVotes;
+    }
+
     function getTime() internal constant returns (uint) {
         return m_time;
     }

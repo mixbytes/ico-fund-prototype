@@ -51,6 +51,12 @@ contract('DAOFund', function(accounts) {
         assert(actual.eq(expected), (message ? message + ': ' : '') + "expected "+expected+", but got: "+actual);
     }
 
+    async function assertVotes(fund, approvalExpected, disapprovalExpected) {
+        const [actualApproval, actualDisapproval] = await fund.getVotes();
+        assertBigNumberEqual(actualApproval, tokens(approvalExpected), 'approval votes check');
+        assertBigNumberEqual(actualDisapproval, tokens(disapprovalExpected), 'disapproval votes check');
+    }
+
 
     it("test instantiation", async function() {
         const role = getRoles();
@@ -217,5 +223,139 @@ contract('DAOFund', function(accounts) {
         await expectThrow(fund.refund({from: role.investor3}));
 
         assert(await fund.isRefunding());
+    });
+
+
+    it("test delegation chain voting", async function() {
+        const role = getRoles();
+
+        let [fund, vault, token] = await instantiate();
+        await fund.setTime(3 * weeks);
+
+        await fund.delegate(role.investor1, {from: role.investor2});
+        await fund.delegate(role.investor2, {from: role.investor3});
+        await fund.approveKeyPoint(true, {from: role.investor1});
+        await assertVotes(fund, 1000, 0);
+
+
+        [fund, vault, token] = await instantiate();
+        await fund.setTime(3 * weeks);
+
+        await fund.delegate(role.investor2, {from: role.investor3});
+        await fund.delegate(role.investor1, {from: role.investor2});
+        await fund.approveKeyPoint(true, {from: role.investor1});
+        await assertVotes(fund, 1000, 0);
+
+
+        [fund, vault, token] = await instantiate();
+        await fund.setTime(3 * weeks);
+
+        await fund.delegate(role.investor1, {from: role.investor2});
+        await fund.delegate(role.investor1, {from: role.investor3});
+        await fund.approveKeyPoint(true, {from: role.investor1});
+        await assertVotes(fund, 1000, 0);
+    });
+
+
+    it("test non-voted delegate voting", async function() {
+        const role = getRoles();
+        const [fund, vault, token] = await instantiate();
+        await fund.setTime(3 * weeks);
+
+        await fund.delegate(role.investor1, {from: role.investor2});
+        await fund.approveKeyPoint(true, {from: role.investor1});
+        await fund.approveKeyPoint(false, {from: role.investor3});
+        await assertVotes(fund, 750, 250);
+    });
+
+
+    it("test voted delegate voting", async function() {
+        const role = getRoles();
+        const [fund, vault, token] = await instantiate();
+        await fund.setTime(3 * weeks);
+
+        await fund.delegate(role.investor1, {from: role.investor2});
+        await fund.approveKeyPoint(true, {from: role.investor1});
+        await expectThrow(fund.approveKeyPoint(true, {from: role.investor1}));
+    });
+
+
+    it("test non-voted delegate token transfer", async function() {
+        const role = getRoles();
+        const [fund, vault, token] = await instantiate();
+        await fund.setTime(3 * weeks);
+
+        await fund.delegate(role.investor1, {from: role.investor2});
+        await token.transfer(role.investor1, tokens(100), {from: role.investor3});
+        await assertVotes(fund, 0, 0);
+        await fund.approveKeyPoint(true, {from: role.investor1});
+        await fund.approveKeyPoint(false, {from: role.investor3});
+        await assertVotes(fund, 850, 150);
+    });
+
+
+    it("test voted delegate token transfer", async function() {
+        const role = getRoles();
+        const [fund, vault, token] = await instantiate();
+        await fund.setTime(3 * weeks);
+
+        await fund.delegate(role.investor1, {from: role.investor2});
+        await fund.approveKeyPoint(true, {from: role.investor1});
+        await fund.approveKeyPoint(false, {from: role.investor3});
+        await assertVotes(fund, 750, 250);
+        await token.transfer(role.investor1, tokens(150), {from: role.investor3});
+        await assertVotes(fund, 900, 100);
+    });
+
+
+    it("test delegator (to non-voted delegate) voting", async function() {
+        const role = getRoles();
+        const [fund, vault, token] = await instantiate();
+        await fund.setTime(3 * weeks);
+
+        await fund.delegate(role.investor1, {from: role.investor2});
+        await expectThrow(fund.approveKeyPoint(true, {from: role.investor2}));
+        await fund.approveKeyPoint(true, {from: role.investor1});
+        await fund.approveKeyPoint(false, {from: role.investor3});
+        await assertVotes(fund, 750, 250);
+    });
+
+
+    it("test delegator (to voted delegate) voting", async function() {
+        const role = getRoles();
+        const [fund, vault, token] = await instantiate();
+        await fund.setTime(3 * weeks);
+
+        await fund.delegate(role.investor1, {from: role.investor2});
+        await fund.approveKeyPoint(true, {from: role.investor1});
+        await expectThrow(fund.approveKeyPoint(true, {from: role.investor2}));
+    });
+
+
+    it("test delegator (to non-voted delegate) token transfer", async function() {
+        const role = getRoles();
+        const [fund, vault, token] = await instantiate();
+        await fund.setTime(3 * weeks);
+
+        await fund.delegate(role.investor1, {from: role.investor2});
+        await token.transfer(role.investor2, tokens(100), {from: role.investor3});
+        await assertVotes(fund, 0, 0);
+        await fund.approveKeyPoint(true, {from: role.investor1});
+        await fund.approveKeyPoint(false, {from: role.investor3});
+        await assertVotes(fund, 850, 150);
+    });
+
+
+    it("test delegator (to voted delegate) token transfer", async function() {
+        const role = getRoles();
+        const [fund, vault, token] = await instantiate();
+        await fund.setTime(3 * weeks);
+
+        await fund.delegate(role.investor1, {from: role.investor2});
+        await fund.approveKeyPoint(true, {from: role.investor1});
+        await fund.approveKeyPoint(false, {from: role.investor3});
+        await assertVotes(fund, 750, 250);
+        await token.transfer(role.investor2, tokens(150), {from: role.investor3});
+        await assertVotes(fund, 900, 100);
     });
 });

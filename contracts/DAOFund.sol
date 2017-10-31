@@ -274,11 +274,11 @@ contract DAOFund {
         m_keyPointState.push(createKeyPointState(getTime() + keyPoint.duration));
     }
 
-    function getCurrentKeyPoint() private constant returns (KeyPoint storage) {
+    function getCurrentKeyPoint() internal constant returns (KeyPoint storage) {
         return m_keyPoints[m_keyPointState.length - 1];
     }
 
-    function getCurrentKeyPointState() private constant returns (KeyPointState storage) {
+    function getCurrentKeyPointState() internal constant returns (KeyPointState storage) {
         return m_keyPointState[m_keyPointState.length - 1];
     }
 
