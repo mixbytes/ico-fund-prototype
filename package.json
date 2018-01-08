@@ -1,12 +1,12 @@
 {
-  "name": "icoplate-fund-prototype",
+  "name": "ico-fund-prototype",
   "version": "0.1.0",
   "description": "Prototype of ICO fund governed by the investors",
   "scripts": {
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/mixbytes/icoplate-fund-prototype"
+    "url": "https://github.com/mixbytes/ico-fund-prototype"
   },
   "keywords": [
     "ICO",
@@ -21,7 +21,6 @@
     "security"
   ],
   "author": "Eenae",
-  "homepage": "https://icoplate.com",
   "devDependencies": {
     "babel-polyfill": "^6.23.0",
     "babel-preset-es2015": "^6.18.0",

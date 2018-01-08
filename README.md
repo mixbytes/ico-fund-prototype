@@ -1,4 +1,4 @@
-# icoplate-fund-prototype
+# ico-fund-prototype
 
 ![](https://travis-ci.org/mixbytes/icoplate-fund-prototype.svg?branch=master)
 
