@@ -14,9 +14,9 @@ before_script:
   - sleep 5
 
 script:
-  - npm test
-  - ./node_modules/.bin/truffle compile
-  - ./node_modules/.bin/truffle test
+  - npm test &&
+    ./node_modules/.bin/truffle compile &&
+    ./node_modules/.bin/truffle test
 
 notifications:
   email:
